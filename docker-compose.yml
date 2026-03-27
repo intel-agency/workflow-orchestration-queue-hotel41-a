@@ -1,0 +1,77 @@
+# OS-APOW Docker Compose Configuration
+# For local development and testing
+
+services:
+  # Sentinel Orchestrator - Background polling service
+  sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "src.orchestrator_sentinel"]
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_ORG=${GITHUB_ORG:-intel-agency}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - SENTINEL_BOT_LOGIN=${SENTINEL_BOT_LOGIN:-}
+    volumes:
+      - ./src:/app/src:ro
+      - sentinel-data:/app/data
+    restart: unless-stopped
+    networks:
+      - os-apow-network
+    # Use Python stdlib for healthcheck (NOT curl - base image doesn't have it)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Notifier Service - FastAPI webhook receiver
+  notifier:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "uvicorn", "src.notifier_service:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+    volumes:
+      - ./src:/app/src:ro
+    restart: unless-stopped
+    networks:
+      - os-apow-network
+    # Use Python stdlib for healthcheck (NOT curl - base image doesn't have it)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+networks:
+  os-apow-network:
+    driver: bridge
+    name: os-apow-network
+
+volumes:
+  sentinel-data:
+    name: os-apow-sentinel-data
